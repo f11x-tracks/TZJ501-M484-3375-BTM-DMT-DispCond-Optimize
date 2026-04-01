@@ -244,34 +244,37 @@ def create_dmt_radial_plots(filtered_df, selected_conditions):
 
 
 def create_dmt_summary_table(filtered_df, selected_conditions):
-    """Summary table for DMT conditions"""
+    """Summary table for DMT conditions - one row per wafer"""
     summary_data = []
     for condition in selected_conditions:
         cond_data = filtered_df[filtered_df['Condition_ID'] == condition]
         if cond_data.empty:
             continue
+        
+        # Group by WaferID to get individual wafer statistics
+        for wafer_id, wafer_data in cond_data.groupby('WaferID'):
+            params = wafer_data[CONDITION_COLS].iloc[0]
+            overall_mean = wafer_data['Film Thickness'].mean()
+            overall_std = wafer_data['Film Thickness'].std()
+            zone_stats = wafer_data.groupby('Zone')['Film Thickness'].agg(['mean', 'std', 'min', 'max']).round(2)
 
-        params = cond_data[CONDITION_COLS].iloc[0]
-        overall_mean = cond_data['Film Thickness'].mean()
-        overall_std = cond_data['Film Thickness'].std()
-        zone_stats = cond_data.groupby('Zone')['Film Thickness'].agg(['mean', 'std', 'min', 'max']).round(2)
+            def zone_val(zone, col, fmt):
+                if zone in zone_stats.index and not np.isnan(zone_stats.loc[zone, col]):
+                    return fmt.format(zone_stats.loc[zone, col])
+                return 'N/A'
 
-        def zone_val(zone, col, fmt):
-            if zone in zone_stats.index and not np.isnan(zone_stats.loc[zone, col]):
-                return fmt.format(zone_stats.loc[zone, col])
-            return 'N/A'
-
-        row = {col: params[col] for col in CONDITION_COLS}
-        row.update({
-            'Overall Mean': f"{overall_mean:.1f}",
-            'Overall Std': f"{overall_std:.2f}",
-            'Center Std': zone_val('Center', 'std', '{:.2f}'),
-            'Mid Std': zone_val('Mid', 'std', '{:.2f}'),
-            'Edge Mean': zone_val('Edge', 'mean', '{:.1f}'),
-            'Edge Std': zone_val('Edge', 'std', '{:.2f}'),
-            'Total Points': len(cond_data)
-        })
-        summary_data.append(row)
+            row = {'WaferID': wafer_id}  # Add WaferID as first column
+            row.update({col: params[col] for col in CONDITION_COLS})
+            row.update({
+                'Overall Mean': f"{overall_mean:.1f}",
+                'Overall Std': f"{overall_std:.2f}",
+                'Center Std': zone_val('Center', 'std', '{:.2f}'),
+                'Mid Std': zone_val('Mid', 'std', '{:.2f}'),
+                'Edge Mean': zone_val('Edge', 'mean', '{:.1f}'),
+                'Edge Std': zone_val('Edge', 'std', '{:.2f}'),
+                'Total Points': len(wafer_data)
+            })
+            summary_data.append(row)
 
     if not summary_data:
         return html.Div("No data available.")
@@ -279,7 +282,7 @@ def create_dmt_summary_table(filtered_df, selected_conditions):
     stat_cols = ['Overall Mean', 'Overall Std',
                  'Center Std', 'Mid Std', 'Edge Mean', 'Edge Std',
                  'Total Points']
-    all_cols = CONDITION_COLS + stat_cols
+    all_cols = ['WaferID'] + CONDITION_COLS + stat_cols
 
     return html.Div([
         dash_table.DataTable(
@@ -679,37 +682,40 @@ def create_radial_plots(filtered_df, selected_conditions):
     return dcc.Graph(figure=fig)
 
 def create_summary_table(filtered_df, selected_conditions):
-    """Create summary table: one row per condition, parameter columns + stats columns"""
+    """Create summary table: one row per wafer, parameter columns + stats columns"""
     summary_data = []
 
     for condition in selected_conditions:
         condition_data = filtered_df[filtered_df['Condition_ID'] == condition]
         if condition_data.empty:
             continue
+        
+        # Group by WaferID to get individual wafer statistics
+        for wafer_id, wafer_data in condition_data.groupby('WaferID'):
+            # Individual parameter values (from first row of this wafer group)
+            params = wafer_data[CONDITION_COLS].iloc[0]
 
-        # Individual parameter values (from first row of this condition group)
-        params = condition_data[CONDITION_COLS].iloc[0]
+            overall_mean = wafer_data['Film Thickness'].mean()
+            overall_std = wafer_data['Film Thickness'].std()
+            zone_stats = wafer_data.groupby('Zone')['Film Thickness'].agg(['mean', 'std', 'min', 'max']).round(2)
 
-        overall_mean = condition_data['Film Thickness'].mean()
-        overall_std = condition_data['Film Thickness'].std()
-        zone_stats = condition_data.groupby('Zone')['Film Thickness'].agg(['mean', 'std', 'min', 'max']).round(2)
+            def zone_val(zone, col, fmt):
+                if zone in zone_stats.index and not np.isnan(zone_stats.loc[zone, col]):
+                    return fmt.format(zone_stats.loc[zone, col])
+                return 'N/A'
 
-        def zone_val(zone, col, fmt):
-            if zone in zone_stats.index and not np.isnan(zone_stats.loc[zone, col]):
-                return fmt.format(zone_stats.loc[zone, col])
-            return 'N/A'
-
-        row = {col: params[col] for col in CONDITION_COLS}
-        row.update({
-            'Overall Mean': f"{overall_mean:.1f}",
-            'Overall Std': f"{overall_std:.2f}",
-            'Center Std': zone_val('Center', 'std', '{:.2f}'),
-            'Mid Std': zone_val('Mid', 'std', '{:.2f}'),
-            'Edge Mean': zone_val('Edge', 'mean', '{:.1f}'),
-            'Edge Std': zone_val('Edge', 'std', '{:.2f}'),
-            'Total Points': len(condition_data)
-        })
-        summary_data.append(row)
+            row = {'WaferID': wafer_id}  # Add WaferID as first column
+            row.update({col: params[col] for col in CONDITION_COLS})
+            row.update({
+                'Overall Mean': f"{overall_mean:.1f}",
+                'Overall Std': f"{overall_std:.2f}",
+                'Center Std': zone_val('Center', 'std', '{:.2f}'),
+                'Mid Std': zone_val('Mid', 'std', '{:.2f}'),
+                'Edge Mean': zone_val('Edge', 'mean', '{:.1f}'),
+                'Edge Std': zone_val('Edge', 'std', '{:.2f}'),
+                'Total Points': len(wafer_data)
+            })
+            summary_data.append(row)
 
     if not summary_data:
         return html.Div("No data available.")
@@ -717,7 +723,7 @@ def create_summary_table(filtered_df, selected_conditions):
     stat_cols = ['Overall Mean', 'Overall Std',
                  'Center Std', 'Mid Std', 'Edge Mean', 'Edge Std',
                  'Total Points']
-    all_cols = CONDITION_COLS + stat_cols
+    all_cols = ['WaferID'] + CONDITION_COLS + stat_cols
 
     return html.Div([
         dash_table.DataTable(
