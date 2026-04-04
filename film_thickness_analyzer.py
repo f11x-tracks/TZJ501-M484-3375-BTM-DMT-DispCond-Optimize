@@ -152,57 +152,152 @@ app = dash.Dash(__name__)
 
 # ── DMT plot helpers ──────────────────────────────────────────────────────────
 
-def create_dmt_contour_plot(filtered_df, selected_wafer, plot_size=600):
-    """Create single DMT contour plot for selected wafer"""
-    if not selected_wafer:
+def create_dmt_contour_plot(filtered_df, selected_wafers, plot_size=600):
+    """Create DMT contour plot(s) for selected wafer(s)"""
+    if not selected_wafers:
         return html.Div("No wafer selected.", style={'textAlign': 'center', 'margin': '20px'})
     
-    wafer_data = filtered_df[filtered_df['WaferID'] == selected_wafer]
-    if wafer_data.empty:
-        return html.Div(f"No data for wafer {selected_wafer}", style={'textAlign': 'center', 'margin': '20px'})
-
-    xi = np.linspace(-150, 150, 100)
-    yi = np.linspace(-150, 150, 100)
-    xi_grid, yi_grid = np.meshgrid(xi, yi)
-    mask = np.sqrt(xi_grid**2 + yi_grid**2) <= 150
-
-    points = wafer_data[['X[mm]', 'Y[mm]']].values
-    values = wafer_data['Film Thickness'].values
-    zi = griddata(points, values, (xi_grid, yi_grid), method='cubic')
-    zi[~mask] = np.nan
-
-    fig = go.Figure(data=go.Contour(
-        z=zi, x=xi, y=yi,
-        colorscale='Viridis',
-        contours=dict(showlabels=True, labelfont=dict(size=10, color='white')),
-        hovertemplate='X: %{x} mm<br>Y: %{y} mm<br>Thickness: %{z:.1f}<extra></extra>'
-    ))
-
-    theta = np.linspace(0, 2 * np.pi, 100)
-    fig.add_trace(go.Scatter(
-        x=150 * np.cos(theta), y=150 * np.sin(theta),
-        mode='lines', line=dict(color='black', width=2),
-        name='Wafer Edge', hoverinfo='skip'
-    ))
-    fig.add_trace(go.Scatter(
-        x=wafer_data['X[mm]'], y=wafer_data['Y[mm]'],
-        mode='markers', marker=dict(color='red', size=4),
-        name='Measurement Points',
-        hovertemplate='X: %{x:.1f} mm<br>Y: %{y:.1f} mm<extra></extra>'
-    ))
-
-    # Get condition info for title
-    condition_info = wafer_data['Condition_ID'].iloc[0] if len(wafer_data) > 0 else 'Unknown'
+    # Handle both single wafer (backward compatibility) and multiple wafers
+    if isinstance(selected_wafers, str):
+        selected_wafers = [selected_wafers]
     
-    fig.update_layout(
-        title=f'DMT Contour - Wafer {selected_wafer}<br>{condition_info}',
-        xaxis_title='X [mm]', yaxis_title='Y [mm]',
-        xaxis=dict(range=[-150, 150], constrain='domain'),
-        yaxis=dict(range=[-150, 150], scaleanchor='x', scaleratio=1),
-        width=plot_size, height=plot_size, showlegend=True
-    )
+    if not selected_wafers:
+        return html.Div("No wafer selected.", style={'textAlign': 'center', 'margin': '20px'})
     
-    return dcc.Graph(figure=fig)
+    # Filter for available wafers
+    available_wafers = [w for w in selected_wafers if not filtered_df[filtered_df['WaferID'] == w].empty]
+    
+    if not available_wafers:
+        missing_wafers = ", ".join(selected_wafers)
+        return html.Div(f"No data for wafer(s): {missing_wafers}", style={'textAlign': 'center', 'margin': '20px'})
+    
+    if len(available_wafers) == 1:
+        # Single wafer - create single contour plot
+        selected_wafer = available_wafers[0]
+        wafer_data = filtered_df[filtered_df['WaferID'] == selected_wafer]
+
+        xi = np.linspace(-150, 150, 100)
+        yi = np.linspace(-150, 150, 100)
+        xi_grid, yi_grid = np.meshgrid(xi, yi)
+        mask = np.sqrt(xi_grid**2 + yi_grid**2) <= 150
+
+        points = wafer_data[['X[mm]', 'Y[mm]']].values
+        values = wafer_data['Film Thickness'].values
+        zi = griddata(points, values, (xi_grid, yi_grid), method='cubic')
+        zi[~mask] = np.nan
+
+        fig = go.Figure(data=go.Contour(
+            z=zi, x=xi, y=yi,
+            colorscale='Viridis',
+            contours=dict(showlabels=True, labelfont=dict(size=10, color='white')),
+            hovertemplate='X: %{x} mm<br>Y: %{y} mm<br>Thickness: %{z:.1f}<extra></extra>'
+        ))
+
+        theta = np.linspace(0, 2 * np.pi, 100)
+        fig.add_trace(go.Scatter(
+            x=150 * np.cos(theta), y=150 * np.sin(theta),
+            mode='lines', line=dict(color='black', width=2),
+            name='Wafer Edge', hoverinfo='skip'
+        ))
+        fig.add_trace(go.Scatter(
+            x=wafer_data['X[mm]'], y=wafer_data['Y[mm]'],
+            mode='markers', marker=dict(color='red', size=4),
+            name='Measurement Points',
+            hovertemplate='X: %{x:.1f} mm<br>Y: %{y:.1f} mm<extra></extra>'
+        ))
+
+        # Get title with Other-WaferID format
+        other_value = wafer_data.get('Other', wafer_data['Other'].iloc[0] if 'Other' in wafer_data.columns and len(wafer_data) > 0 else 'Unknown')
+        if len(wafer_data) > 0 and 'Other' in wafer_data.columns:
+            other_value = wafer_data['Other'].iloc[0]
+        else:
+            other_value = 'Unknown'
+        
+        fig.update_layout(
+            title=f'DMT Contour - {other_value} - {selected_wafer}',
+            xaxis_title='X [mm]', yaxis_title='Y [mm]',
+            xaxis=dict(range=[-150, 150], constrain='domain'),
+            yaxis=dict(range=[-150, 150], scaleanchor='x', scaleratio=1),
+            width=plot_size, height=plot_size, showlegend=True
+        )
+        
+        return dcc.Graph(figure=fig)
+    
+    else:
+        # Multiple wafers - create subplot grid
+        from plotly.subplots import make_subplots
+        import math
+        
+        n_wafers = len(available_wafers)
+        cols = min(3, n_wafers)  # Max 3 columns
+        rows = math.ceil(n_wafers / cols)
+        
+        # Create subplot titles with Other-WaferID format
+        subplot_titles = []
+        for wafer in available_wafers:
+            wafer_data = filtered_df[filtered_df['WaferID'] == wafer]
+            if len(wafer_data) > 0 and 'Other' in wafer_data.columns:
+                other_value = wafer_data['Other'].iloc[0]
+                subplot_titles.append(f'{other_value} - {wafer}')
+            else:
+                subplot_titles.append(f'Unknown - {wafer}')
+        
+        fig = make_subplots(
+            rows=rows, cols=cols,
+            subplot_titles=subplot_titles,
+            specs=[[{'type': 'xy'}] * cols for _ in range(rows)]
+        )
+        
+        for i, wafer in enumerate(available_wafers):
+            row = (i // cols) + 1
+            col = (i % cols) + 1
+            
+            wafer_data = filtered_df[filtered_df['WaferID'] == wafer]
+            
+            # Create grid for interpolation
+            xi = np.linspace(-150, 150, 50)  # Reduced resolution for subplots
+            yi = np.linspace(-150, 150, 50)
+            xi_grid, yi_grid = np.meshgrid(xi, yi)
+            
+            points = wafer_data[['X[mm]', 'Y[mm]']].values
+            values = wafer_data['Film Thickness'].values
+            
+            mask = np.sqrt(xi_grid**2 + yi_grid**2) <= 150
+            zi = griddata(points, values, (xi_grid, yi_grid), method='cubic')
+            zi[~mask] = np.nan
+            
+            # Add contour
+            fig.add_trace(go.Contour(
+                z=zi, x=xi, y=yi,
+                colorscale='Viridis',
+                showscale=True if i == 0 else False,  # Only show colorbar for first plot
+                contours=dict(showlabels=False),
+                hovertemplate=f'Wafer {wafer}<br>X: %{{x}} mm<br>Y: %{{y}} mm<br>Thickness: %{{z:.1f}}<extra></extra>'
+            ), row=row, col=col)
+            
+            # Add wafer boundary
+            theta = np.linspace(0, 2*np.pi, 100)
+            fig.add_trace(go.Scatter(
+                x=150*np.cos(theta), y=150*np.sin(theta),
+                mode='lines', line=dict(color='black', width=1),
+                showlegend=False, hoverinfo='skip'
+            ), row=row, col=col)
+            
+            # Update subplot axes
+            fig.update_xaxes(range=[-150, 150], constrain='domain', row=row, col=col)
+            fig.update_yaxes(range=[-150, 150], scaleanchor=f'x{i+1}', scaleratio=1, row=row, col=col)
+        
+        subplot_height = plot_size // rows
+        total_height = max(400, subplot_height * rows)
+        
+        fig.update_layout(
+            title=f'DMT Contours - {len(available_wafers)} Wafers',
+            height=total_height,
+            width=plot_size,
+            showlegend=False
+        )
+        
+        return dcc.Graph(figure=fig)
 
 
 def create_dmt_radial_plots(filtered_df, selected_conditions):
@@ -243,9 +338,9 @@ def create_dmt_radial_plots(filtered_df, selected_conditions):
         ))
 
     fig.add_vline(x=70, line_dash='dash', line_color='gray',
-                  annotation_text='Center/Mid', annotation_position='top')
+                  annotation_text='70mm', annotation_position='top')
     fig.add_vline(x=140, line_dash='dash', line_color='gray',
-                  annotation_text='Mid/Edge', annotation_position='top')
+                  annotation_text='140mm', annotation_position='top')
 
     fig.update_layout(
         title='DMT Radial Film Thickness Profile (Center to Edge)',
@@ -352,7 +447,7 @@ app.layout = html.Div([
                     html.Label("Contour Plot Size:", style={'fontWeight': 'bold', 'marginRight': 10}),
                     dcc.Dropdown(
                         id='contour-size-drop',
-                        options=[{'label': f'{s}px', 'value': s} for s in [400, 500, 600, 700, 800]],
+                        options=[{'label': f'{s}px', 'value': s} for s in [400, 500, 600, 700, 800, 1000, 1200]],
                         value=600,
                         clearable=False,
                         style={'width': '120px', 'display': 'inline-block'}
@@ -374,9 +469,10 @@ app.layout = html.Div([
                         id='wafer-select-drop',
                         options=[],  # Will be populated by callback
                         value=None,
+                        multi=True,
                         clearable=True,
-                        placeholder='Select wafer for contour plot',
-                        style={'width': '200px', 'display': 'inline-block'}
+                        placeholder='Select wafer(s) for contour plot',
+                        style={'width': '300px', 'display': 'inline-block'}
                     )
                 ], style={'display': 'flex', 'alignItems': 'center'}),
             ], style={'display': 'flex', 'alignItems': 'center', 'margin': '0 20px 20px 20px'}),
@@ -386,6 +482,21 @@ app.layout = html.Div([
                     html.Div(id='page-content', style={'margin': '20px'})
                 ]),
                 dcc.Tab(label='Charts', children=[
+                    html.Div([
+                        html.Label("Zone Selection:", style={'fontWeight': 'bold', 'marginRight': 10}),
+                        dcc.Dropdown(
+                            id='btm-zone-drop',
+                            options=[
+                                {'label': 'Overall', 'value': 'Overall'},
+                                {'label': 'Center', 'value': 'Center'},
+                                {'label': 'Mid', 'value': 'Mid'},
+                                {'label': 'Edge', 'value': 'Edge'}
+                            ],
+                            value='Overall',
+                            clearable=False,
+                            style={'width': '200px', 'display': 'inline-block'}
+                        )
+                    ], style={'display': 'flex', 'alignItems': 'center', 'margin': '20px'}),
                     html.Div(id='btm-charts-content', style={'margin': '20px'})
                 ]),
             ], style={'marginTop': '10px'})
@@ -418,7 +529,7 @@ app.layout = html.Div([
                     html.Label("Contour Plot Size:", style={'fontWeight': 'bold', 'marginRight': 10}),
                     dcc.Dropdown(
                         id='dmt-contour-size-drop',
-                        options=[{'label': f'{s}px', 'value': s} for s in [400, 500, 600, 700, 800]],
+                        options=[{'label': f'{s}px', 'value': s} for s in [400, 500, 600, 700, 800, 1000, 1200]],
                         value=600,
                         clearable=False,
                         style={'width': '120px', 'display': 'inline-block'}
@@ -440,9 +551,10 @@ app.layout = html.Div([
                         id='dmt-wafer-select-drop',
                         options=[],  # Will be populated by callback
                         value=None,
+                        multi=True,
                         clearable=True,
-                        placeholder='Select wafer for contour plot',
-                        style={'width': '200px', 'display': 'inline-block'}
+                        placeholder='Select wafer(s) for contour plot',
+                        style={'width': '300px', 'display': 'inline-block'}
                     )
                 ], style={'display': 'flex', 'alignItems': 'center'}),
             ], style={'display': 'flex', 'alignItems': 'center', 'margin': '0 20px 20px 20px'}),
@@ -452,6 +564,21 @@ app.layout = html.Div([
                     html.Div(id='dmt-page-content', style={'margin': '20px'})
                 ]),
                 dcc.Tab(label='Charts', children=[
+                    html.Div([
+                        html.Label("Zone Selection:", style={'fontWeight': 'bold', 'marginRight': 10}),
+                        dcc.Dropdown(
+                            id='dmt-zone-drop',
+                            options=[
+                                {'label': 'Overall', 'value': 'Overall'},
+                                {'label': 'Center', 'value': 'Center'},
+                                {'label': 'Mid', 'value': 'Mid'},
+                                {'label': 'Edge', 'value': 'Edge'}
+                            ],
+                            value='Overall',
+                            clearable=False,
+                            style={'width': '200px', 'display': 'inline-block'}
+                        )
+                    ], style={'display': 'flex', 'alignItems': 'center', 'margin': '20px'}),
                     html.Div(id='dmt-charts-content', style={'margin': '20px'})
                 ]),
             ], style={'marginTop': '10px'})
@@ -473,8 +600,15 @@ def update_wafer_dropdown(param_values):
             filtered_df = filtered_df[filtered_df[col].isin(vals)]
     
     available_wafers = sorted(filtered_df['WaferID'].unique())
-    options = [{'label': wafer, 'value': wafer} for wafer in available_wafers]
-    default_value = available_wafers[0] if available_wafers else None
+    # Create options with 'Other' condition + WaferID format
+    options = []
+    for wafer in available_wafers:
+        wafer_data = filtered_df[filtered_df['WaferID'] == wafer].iloc[0]
+        other_value = wafer_data.get('Other', '')
+        label = f"{other_value} - {wafer}"
+        options.append({'label': label, 'value': wafer})
+    
+    default_value = [available_wafers[0]] if available_wafers else []
     return options, default_value
 
 # Populate wafer dropdown for DMT
@@ -490,8 +624,15 @@ def update_dmt_wafer_dropdown(param_values):
             filtered_df = filtered_df[filtered_df[col].isin(vals)]
     
     available_wafers = sorted(filtered_df['WaferID'].unique())
-    options = [{'label': wafer, 'value': wafer} for wafer in available_wafers]
-    default_value = available_wafers[0] if available_wafers else None
+    # Create options with 'Other' condition + WaferID format
+    options = []
+    for wafer in available_wafers:
+        wafer_data = filtered_df[filtered_df['WaferID'] == wafer].iloc[0]
+        other_value = wafer_data.get('Other', '')
+        label = f"{other_value} - {wafer}"
+        options.append({'label': label, 'value': wafer})
+    
+    default_value = [available_wafers[0]] if available_wafers else []
     return options, default_value
 
 @app.callback(
@@ -562,9 +703,10 @@ def render_dmt_content(param_values, contour_size, matching_offset, selected_waf
 @app.callback(
     Output('btm-charts-content', 'children'),
     Input({'type': 'param-drop', 'index': ALL}, 'value'),
-    Input('matching-offset-drop', 'value')
+    Input('matching-offset-drop', 'value'),
+    Input('btm-zone-drop', 'value')
 )
-def render_btm_charts(param_values, matching_offset):
+def render_btm_charts(param_values, matching_offset, selected_zone):
     filtered_df = df.copy()
     # Apply matching offset to thickness values
     if matching_offset:
@@ -576,17 +718,18 @@ def render_btm_charts(param_values, matching_offset):
     if not selected_conditions:
         return html.Div("No conditions match the selected filters.")
     return html.Div([
-        html.H2("Mean & Std Dev by Condition", style={'marginTop': 20}),
-        create_condition_stats_plot(filtered_df, selected_conditions),
+        html.H2(f"Mean & Std Dev by Condition - {selected_zone}", style={'marginTop': 20}),
+        create_condition_stats_plot(filtered_df, selected_conditions, selected_zone),
     ])
 
 
 @app.callback(
     Output('dmt-charts-content', 'children'),
     Input({'type': 'dmt-param-drop', 'index': ALL}, 'value'),
-    Input('dmt-matching-offset-drop', 'value')
+    Input('dmt-matching-offset-drop', 'value'),
+    Input('dmt-zone-drop', 'value')
 )
-def render_dmt_charts(param_values, matching_offset):
+def render_dmt_charts(param_values, matching_offset, selected_zone):
     filtered_df = dmt_df.copy()
     # Apply matching offset to thickness values
     if matching_offset:
@@ -598,15 +741,21 @@ def render_dmt_charts(param_values, matching_offset):
     if not selected_conditions:
         return html.Div("No conditions match the selected filters.")
     return html.Div([
-        html.H2("Mean & Std Dev by Condition", style={'marginTop': 20}),
-        create_condition_stats_plot(filtered_df, selected_conditions),
+        html.H2(f"Mean & Std Dev by Condition - {selected_zone}", style={'marginTop': 20}),
+        create_condition_stats_plot(filtered_df, selected_conditions, selected_zone),
     ])
 
-def create_condition_stats_plot(filtered_df, selected_conditions):
-    """Line chart of mean and std dev per selected condition"""
+def create_condition_stats_plot(filtered_df, selected_conditions, selected_zone='Overall'):
+    """Line chart of mean and std dev per selected condition with zone filtering"""
     rows = []
     for condition in selected_conditions:
-        vals = filtered_df[filtered_df['Condition_ID'] == condition]['Film Thickness']
+        condition_data = filtered_df[filtered_df['Condition_ID'] == condition]
+        
+        # Apply zone filtering
+        if selected_zone != 'Overall':
+            condition_data = condition_data[condition_data['Zone'] == selected_zone]
+        
+        vals = condition_data['Film Thickness']
         if vals.empty:
             continue
         rows.append({
@@ -650,92 +799,192 @@ def create_condition_stats_plot(filtered_df, selected_conditions):
 
     fig.update_layout(
         title='Mean & Std Dev by Condition',
-        xaxis=dict(title='Condition', tickangle=-45),
+        xaxis=dict(
+            title='Condition', 
+            tickangle=-45,
+            automargin=True,  # Auto-adjust margins for long labels
+            tickfont=dict(size=10)  # Smaller font for readability
+        ),
         yaxis=dict(title='Mean Thickness', side='left'),
         yaxis2=dict(title='Std Dev', side='right', overlaying='y', showgrid=False),
-        height=500,
+        height=1000,  # Reduced from 2500px to 1000px
         legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1),
-        margin=dict(l=60, r=60, t=60, b=120),
+        margin=dict(l=60, r=60, t=60, b=300),  # Increased bottom margin for long labels
         hovermode='x unified'
     )
 
     return dcc.Graph(figure=fig)
 
 
-def create_contour_plot(filtered_df, selected_wafer, plot_size=600):
-    """Create single contour plot for selected wafer"""
-    if not selected_wafer:
+def create_contour_plot(filtered_df, selected_wafers, plot_size=600):
+    """Create contour plot(s) for selected wafer(s)"""
+    if not selected_wafers:
         return html.Div("No wafer selected.", style={'textAlign': 'center', 'margin': '20px'})
     
-    wafer_data = filtered_df[filtered_df['WaferID'] == selected_wafer]
-    if wafer_data.empty:
-        return html.Div(f"No data for wafer {selected_wafer}", style={'textAlign': 'center', 'margin': '20px'})
+    # Handle both single wafer (backward compatibility) and multiple wafers
+    if isinstance(selected_wafers, str):
+        selected_wafers = [selected_wafers]
+    
+    if not selected_wafers:
+        return html.Div("No wafer selected.", style={'textAlign': 'center', 'margin': '20px'})
+    
+    # Filter for available wafers
+    available_wafers = [w for w in selected_wafers if not filtered_df[filtered_df['WaferID'] == w].empty]
+    
+    if not available_wafers:
+        missing_wafers = ", ".join(selected_wafers)
+        return html.Div(f"No data for wafer(s): {missing_wafers}", style={'textAlign': 'center', 'margin': '20px'})
+    
+    if len(available_wafers) == 1:
+        # Single wafer - create single contour plot
+        selected_wafer = available_wafers[0]
+        wafer_data = filtered_df[filtered_df['WaferID'] == selected_wafer]
+            
+        # Create grid for interpolation
+        xi = np.linspace(-150, 150, 100)
+        yi = np.linspace(-150, 150, 100)
+        xi_grid, yi_grid = np.meshgrid(xi, yi)
         
-    # Create grid for interpolation
-    xi = np.linspace(-150, 150, 100)
-    yi = np.linspace(-150, 150, 100)
-    xi_grid, yi_grid = np.meshgrid(xi, yi)
+        # Interpolate thickness data
+        points = wafer_data[['X[mm]', 'Y[mm]']].values
+        values = wafer_data['Film Thickness'].values
+        
+        # Only interpolate within the wafer boundary (150mm radius)
+        mask = np.sqrt(xi_grid**2 + yi_grid**2) <= 150
+        
+        zi = griddata(points, values, (xi_grid, yi_grid), method='cubic')
+        zi[~mask] = np.nan
+        
+        # Create contour plot
+        fig = go.Figure(data=go.Contour(
+            z=zi,
+            x=xi,
+            y=yi,
+            colorscale='Viridis',
+            contours=dict(
+                showlabels=True,
+                labelfont=dict(size=10, color='white')
+            ),
+            hovertemplate='X: %{x} mm<br>Y: %{y} mm<br>Thickness: %{z:.0f}<extra></extra>'
+        ))
+        
+        # Add wafer boundary circle
+        theta = np.linspace(0, 2*np.pi, 100)
+        fig.add_trace(go.Scatter(
+            x=150*np.cos(theta),
+            y=150*np.sin(theta),
+            mode='lines',
+            line=dict(color='black', width=2),
+            name='Wafer Edge',
+            hoverinfo='skip'
+        ))
+        
+        # Add measurement points
+        fig.add_trace(go.Scatter(
+            x=wafer_data['X[mm]'],
+            y=wafer_data['Y[mm]'],
+            mode='markers',
+            marker=dict(color='red', size=4),
+            name='Measurement Points',
+            hovertemplate='X: %{x} mm<br>Y: %{y} mm<br>Point: %{text}<extra></extra>',
+            text=wafer_data.get('Point No', wafer_data.index)
+        ))
+        
+        # Get title with Other-WaferID format
+        other_value = wafer_data.get('Other', wafer_data['Other'].iloc[0] if 'Other' in wafer_data.columns and len(wafer_data) > 0 else 'Unknown')
+        if len(wafer_data) > 0 and 'Other' in wafer_data.columns:
+            other_value = wafer_data['Other'].iloc[0]
+        else:
+            other_value = 'Unknown'
+        
+        fig.update_layout(
+            title=f'Film Thickness Contour - {other_value} - {selected_wafer}',
+            xaxis_title='X [mm]',
+            yaxis_title='Y [mm]',
+            xaxis=dict(range=[-150, 150], constrain='domain'),
+            yaxis=dict(range=[-150, 150], scaleanchor='x', scaleratio=1),
+            width=plot_size,
+            height=plot_size,
+            showlegend=True
+        )
+        
+        return dcc.Graph(figure=fig)
     
-    # Interpolate thickness data
-    points = wafer_data[['X[mm]', 'Y[mm]']].values
-    values = wafer_data['Film Thickness'].values
-    
-    # Only interpolate within the wafer boundary (150mm radius)
-    mask = np.sqrt(xi_grid**2 + yi_grid**2) <= 150
-    
-    zi = griddata(points, values, (xi_grid, yi_grid), method='cubic')
-    zi[~mask] = np.nan
-    
-    # Create contour plot
-    fig = go.Figure(data=go.Contour(
-        z=zi,
-        x=xi,
-        y=yi,
-        colorscale='Viridis',
-        contours=dict(
-            showlabels=True,
-            labelfont=dict(size=10, color='white')
-        ),
-        hovertemplate='X: %{x} mm<br>Y: %{y} mm<br>Thickness: %{z:.0f}<extra></extra>'
-    ))
-    
-    # Add wafer boundary circle
-    theta = np.linspace(0, 2*np.pi, 100)
-    fig.add_trace(go.Scatter(
-        x=150*np.cos(theta),
-        y=150*np.sin(theta),
-        mode='lines',
-        line=dict(color='black', width=2),
-        name='Wafer Edge',
-        hoverinfo='skip'
-    ))
-    
-    # Add measurement points
-    fig.add_trace(go.Scatter(
-        x=wafer_data['X[mm]'],
-        y=wafer_data['Y[mm]'],
-        mode='markers',
-        marker=dict(color='red', size=4),
-        name='Measurement Points',
-        hovertemplate='X: %{x} mm<br>Y: %{y} mm<br>Point: %{text}<extra></extra>',
-        text=wafer_data.get('Point No', wafer_data.index)
-    ))
-    
-    # Get condition info for title
-    condition_info = wafer_data['Condition_ID'].iloc[0] if len(wafer_data) > 0 else 'Unknown'
-    
-    fig.update_layout(
-        title=f'Film Thickness Contour - Wafer {selected_wafer}<br>{condition_info}',
-        xaxis_title='X [mm]',
-        yaxis_title='Y [mm]',
-        xaxis=dict(range=[-150, 150], constrain='domain'),
-        yaxis=dict(range=[-150, 150], scaleanchor='x', scaleratio=1),
-        width=plot_size,
-        height=plot_size,
-        showlegend=True
-    )
-
-    return dcc.Graph(figure=fig)
+    else:
+        # Multiple wafers - create subplot grid
+        from plotly.subplots import make_subplots
+        import math
+        
+        n_wafers = len(available_wafers)
+        cols = min(3, n_wafers)  # Max 3 columns
+        rows = math.ceil(n_wafers / cols)
+        
+        # Create subplot titles with Other-WaferID format
+        subplot_titles = []
+        for wafer in available_wafers:
+            wafer_data = filtered_df[filtered_df['WaferID'] == wafer]
+            if len(wafer_data) > 0 and 'Other' in wafer_data.columns:
+                other_value = wafer_data['Other'].iloc[0]
+                subplot_titles.append(f'{other_value} - {wafer}')
+            else:
+                subplot_titles.append(f'Unknown - {wafer}')
+        
+        fig = make_subplots(
+            rows=rows, cols=cols,
+            subplot_titles=subplot_titles,
+            specs=[[{'type': 'xy'}] * cols for _ in range(rows)]
+        )
+        
+        for i, wafer in enumerate(available_wafers):
+            row = (i // cols) + 1
+            col = (i % cols) + 1
+            
+            wafer_data = filtered_df[filtered_df['WaferID'] == wafer]
+            
+            # Create grid for interpolation
+            xi = np.linspace(-150, 150, 50)  # Reduced resolution for subplots
+            yi = np.linspace(-150, 150, 50)
+            xi_grid, yi_grid = np.meshgrid(xi, yi)
+            
+            points = wafer_data[['X[mm]', 'Y[mm]']].values
+            values = wafer_data['Film Thickness'].values
+            
+            mask = np.sqrt(xi_grid**2 + yi_grid**2) <= 150
+            zi = griddata(points, values, (xi_grid, yi_grid), method='cubic')
+            zi[~mask] = np.nan
+            
+            # Add contour
+            fig.add_trace(go.Contour(
+                z=zi, x=xi, y=yi,
+                colorscale='Viridis',
+                showscale=True if i == 0 else False,  # Only show colorbar for first plot
+                contours=dict(showlabels=False),
+                hovertemplate=f'Wafer {wafer}<br>X: %{{x}} mm<br>Y: %{{y}} mm<br>Thickness: %{{z:.0f}}<extra></extra>'
+            ), row=row, col=col)
+            
+            # Add wafer boundary
+            theta = np.linspace(0, 2*np.pi, 100)
+            fig.add_trace(go.Scatter(
+                x=150*np.cos(theta), y=150*np.sin(theta),
+                mode='lines', line=dict(color='black', width=1),
+                showlegend=False, hoverinfo='skip'
+            ), row=row, col=col)
+            
+            # Update subplot axes
+            fig.update_xaxes(range=[-150, 150], constrain='domain', row=row, col=col)
+            fig.update_yaxes(range=[-150, 150], scaleanchor=f'x{i+1}', scaleratio=1, row=row, col=col)
+        
+        subplot_height = plot_size // rows
+        total_height = max(400, subplot_height * rows)
+        
+        fig.update_layout(
+            title=f'Film Thickness Contours - {len(available_wafers)} Wafers',
+            height=total_height,
+            width=plot_size,
+            showlegend=False
+        )
+        
+        return dcc.Graph(figure=fig)
 
 def create_radial_plots(filtered_df, selected_conditions):
     """Create radial profile plots (center to edge)"""
@@ -783,12 +1032,12 @@ def create_radial_plots(filtered_df, selected_conditions):
     
     # Add zone boundaries
     fig.add_vline(x=70, line_dash="dash", line_color="gray", 
-                  annotation_text="Center/Mid", annotation_position="top")
+                  annotation_text="70mm", annotation_position="top")
     fig.add_vline(x=140, line_dash="dash", line_color="gray", 
-                  annotation_text="Mid/Edge", annotation_position="top")
+                  annotation_text="140mm", annotation_position="top")
     
     fig.update_layout(
-        title='Radial Film Thickness Profile (Center to Edge)',
+        title='BTM Radial Film Thickness Profile (Center to Edge)',
         xaxis_title='Radius [mm]',
         yaxis_title='Film Thickness',
         width=1200,
