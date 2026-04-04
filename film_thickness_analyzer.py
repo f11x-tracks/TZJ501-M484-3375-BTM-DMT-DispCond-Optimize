@@ -483,19 +483,31 @@ app.layout = html.Div([
                 ]),
                 dcc.Tab(label='Charts', children=[
                     html.Div([
-                        html.Label("Zone Selection:", style={'fontWeight': 'bold', 'marginRight': 10}),
-                        dcc.Dropdown(
-                            id='btm-zone-drop',
-                            options=[
-                                {'label': 'Overall', 'value': 'Overall'},
-                                {'label': 'Center', 'value': 'Center'},
-                                {'label': 'Mid', 'value': 'Mid'},
-                                {'label': 'Edge', 'value': 'Edge'}
-                            ],
-                            value='Overall',
-                            clearable=False,
-                            style={'width': '200px', 'display': 'inline-block'}
-                        )
+                        html.Div([
+                            html.Label("Zone Selection:", style={'fontWeight': 'bold', 'marginRight': 10}),
+                            dcc.Dropdown(
+                                id='btm-zone-drop',
+                                options=[
+                                    {'label': 'Overall', 'value': 'Overall'},
+                                    {'label': 'Center', 'value': 'Center'},
+                                    {'label': 'Mid', 'value': 'Mid'},
+                                    {'label': 'Edge', 'value': 'Edge'}
+                                ],
+                                value='Overall',
+                                clearable=False,
+                                style={'width': '200px', 'display': 'inline-block'}
+                            )
+                        ], style={'display': 'flex', 'alignItems': 'center', 'marginRight': '30px'}),
+                        html.Div([
+                            html.Label("Sort by:", style={'fontWeight': 'bold', 'marginRight': 10}),
+                            dcc.Dropdown(
+                                id='btm-sort-drop',
+                                options=[{'label': col, 'value': col} for col in CONDITION_COLS],
+                                value='DispT',
+                                clearable=False,
+                                style={'width': '150px', 'display': 'inline-block'}
+                            )
+                        ], style={'display': 'flex', 'alignItems': 'center'})
                     ], style={'display': 'flex', 'alignItems': 'center', 'margin': '20px'}),
                     html.Div(id='btm-charts-content', style={'margin': '20px'})
                 ]),
@@ -565,19 +577,31 @@ app.layout = html.Div([
                 ]),
                 dcc.Tab(label='Charts', children=[
                     html.Div([
-                        html.Label("Zone Selection:", style={'fontWeight': 'bold', 'marginRight': 10}),
-                        dcc.Dropdown(
-                            id='dmt-zone-drop',
-                            options=[
-                                {'label': 'Overall', 'value': 'Overall'},
-                                {'label': 'Center', 'value': 'Center'},
-                                {'label': 'Mid', 'value': 'Mid'},
-                                {'label': 'Edge', 'value': 'Edge'}
-                            ],
-                            value='Overall',
-                            clearable=False,
-                            style={'width': '200px', 'display': 'inline-block'}
-                        )
+                        html.Div([
+                            html.Label("Zone Selection:", style={'fontWeight': 'bold', 'marginRight': 10}),
+                            dcc.Dropdown(
+                                id='dmt-zone-drop',
+                                options=[
+                                    {'label': 'Overall', 'value': 'Overall'},
+                                    {'label': 'Center', 'value': 'Center'},
+                                    {'label': 'Mid', 'value': 'Mid'},
+                                    {'label': 'Edge', 'value': 'Edge'}
+                                ],
+                                value='Overall',
+                                clearable=False,
+                                style={'width': '200px', 'display': 'inline-block'}
+                            )
+                        ], style={'display': 'flex', 'alignItems': 'center', 'marginRight': '30px'}),
+                        html.Div([
+                            html.Label("Sort by:", style={'fontWeight': 'bold', 'marginRight': 10}),
+                            dcc.Dropdown(
+                                id='dmt-sort-drop',
+                                options=[{'label': col, 'value': col} for col in CONDITION_COLS],
+                                value='DispT',
+                                clearable=False,
+                                style={'width': '150px', 'display': 'inline-block'}
+                            )
+                        ], style={'display': 'flex', 'alignItems': 'center'})
                     ], style={'display': 'flex', 'alignItems': 'center', 'margin': '20px'}),
                     html.Div(id='dmt-charts-content', style={'margin': '20px'})
                 ]),
@@ -704,9 +728,10 @@ def render_dmt_content(param_values, contour_size, matching_offset, selected_waf
     Output('btm-charts-content', 'children'),
     Input({'type': 'param-drop', 'index': ALL}, 'value'),
     Input('matching-offset-drop', 'value'),
-    Input('btm-zone-drop', 'value')
+    Input('btm-zone-drop', 'value'),
+    Input('btm-sort-drop', 'value')
 )
-def render_btm_charts(param_values, matching_offset, selected_zone):
+def render_btm_charts(param_values, matching_offset, selected_zone, sort_by):
     filtered_df = df.copy()
     # Apply matching offset to thickness values
     if matching_offset:
@@ -718,8 +743,8 @@ def render_btm_charts(param_values, matching_offset, selected_zone):
     if not selected_conditions:
         return html.Div("No conditions match the selected filters.")
     return html.Div([
-        html.H2(f"Mean & Std Dev by Condition - {selected_zone}", style={'marginTop': 20}),
-        create_condition_stats_plot(filtered_df, selected_conditions, selected_zone),
+        html.H2(f"Mean & Std Dev by Condition - {selected_zone} (Sorted by {sort_by})", style={'marginTop': 20}),
+        create_condition_stats_plot(filtered_df, selected_conditions, selected_zone, sort_by),
     ])
 
 
@@ -727,9 +752,10 @@ def render_btm_charts(param_values, matching_offset, selected_zone):
     Output('dmt-charts-content', 'children'),
     Input({'type': 'dmt-param-drop', 'index': ALL}, 'value'),
     Input('dmt-matching-offset-drop', 'value'),
-    Input('dmt-zone-drop', 'value')
+    Input('dmt-zone-drop', 'value'),
+    Input('dmt-sort-drop', 'value')
 )
-def render_dmt_charts(param_values, matching_offset, selected_zone):
+def render_dmt_charts(param_values, matching_offset, selected_zone, sort_by):
     filtered_df = dmt_df.copy()
     # Apply matching offset to thickness values
     if matching_offset:
@@ -741,12 +767,12 @@ def render_dmt_charts(param_values, matching_offset, selected_zone):
     if not selected_conditions:
         return html.Div("No conditions match the selected filters.")
     return html.Div([
-        html.H2(f"Mean & Std Dev by Condition - {selected_zone}", style={'marginTop': 20}),
-        create_condition_stats_plot(filtered_df, selected_conditions, selected_zone),
+        html.H2(f"Mean & Std Dev by Condition - {selected_zone} (Sorted by {sort_by})", style={'marginTop': 20}),
+        create_condition_stats_plot(filtered_df, selected_conditions, selected_zone, sort_by),
     ])
 
-def create_condition_stats_plot(filtered_df, selected_conditions, selected_zone='Overall'):
-    """Line chart of mean and std dev per selected condition with zone filtering"""
+def create_condition_stats_plot(filtered_df, selected_conditions, selected_zone='Overall', sort_by='DispT'):
+    """Line chart of mean and std dev per selected condition with zone filtering and custom sorting"""
     rows = []
     for condition in selected_conditions:
         condition_data = filtered_df[filtered_df['Condition_ID'] == condition]
@@ -758,16 +784,24 @@ def create_condition_stats_plot(filtered_df, selected_conditions, selected_zone=
         vals = condition_data['Film Thickness']
         if vals.empty:
             continue
+            
+        # Get the sort parameter value for this condition
+        sort_value = condition_data[sort_by].iloc[0] if len(condition_data) > 0 else 0
+        
         rows.append({
             'Condition': condition,
             'Mean': round(vals.mean(), 2),
             'Std Dev': round(vals.std(), 2),
+            'sort_value': sort_value
         })
 
     if not rows:
         return html.Div("No data available.")
 
     stats_df = pd.DataFrame(rows)
+    
+    # Sort by the selected parameter value
+    stats_df = stats_df.sort_values('sort_value')
 
     fig = go.Figure()
 
@@ -798,7 +832,7 @@ def create_condition_stats_plot(filtered_df, selected_conditions, selected_zone=
     ))
 
     fig.update_layout(
-        title='Mean & Std Dev by Condition',
+        title=f'Mean & Std Dev by Condition - Sorted by {sort_by}',
         xaxis=dict(
             title='Condition', 
             tickangle=-45,
